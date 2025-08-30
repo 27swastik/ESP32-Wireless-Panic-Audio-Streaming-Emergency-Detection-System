@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>ESP32 Audio Transmission Device</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: #101820;
+      color: #f1f1f1;
+      padding: 20px;
+      max-width: 1100px;
+      margin: auto;
+    }
+    h2 {
+      color: #00d1ff;
+      margin-bottom: 20px;
+    }
+    h3 {
+      color: #69d1f3;
+      margin-bottom: 10px;
+    }
+    .section {
+      background: #1e2a38;
+      border-radius: 12px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      padding: 20px;
+      margin-top: 30px;
+    }
+    .status-box {
+      font-weight: 600;
+      padding: 6px 14px;
+      border-radius: 50px;
+      display: inline-block;
+      font-size: 0.9rem;
+    }
+    #status {
+      background-color: #37474f;
+      color: #fff;
+    }
+    #streamingStatus {
+      background-color: #f44336;
+      color: #fff;
+      margin-left: 10px;
+    }
+    canvas {
+      width: 100%;
+      margin-top: 15px;
+      background: #0c111b;
+      border: 1px solid #31475e;
+      border-radius: 10px;
+    }
+    .recording-block {
+      margin-bottom: 15px;
+    }
+    select {
+      margin-top: 10px;
+      padding: 6px 10px;
+      font-size: 1rem;
+      border-radius: 6px;
+      border: 1px solid #495867;
+      background: #15202b;
+      color: #f1f1f1;
+    }
+    button {
+      background: linear-gradient(135deg, #00c6ff 0%, #0072ff 100%);
+      color: white;
+      border: none;
+      border-radius: 6px;
+      padding: 10px 18px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.2s ease;
+    }
+    button:hover {
+      opacity: 0.85;
+    }
+    a {
+      color: #5ac8fa;
+      text-decoration: none;
+    }
+    a:hover {
+      text-decoration: underline;
+    }
+    #liveTranscript {
+      font-family: monospace;
+      background-color: #0d1a26;
+      border: 1px solid #31475e;
+      padding: 10px;
+      border-radius: 10px;
+      white-space: pre-wrap;
+      max-height: 200px;
+      overflow-y: auto;
+      margin-top: 10px;
+      color: #00ffcc;
+    }
+    #alertBanner {
+      display: none;
+      background-color: red;
+      padding: 12px;
+      color: white;
+      font-weight: bold;
+      text-align: center;
+      border-radius: 8px;
+      margin-top: 10px;
+      animation: blink 1s infinite;
+    }
+    @keyframes blink {
+      50% { opacity: 0.5; }
+    }
+
+  </style>
+</head>
+<body>
+  <h2>🎙️ ESP32 Audio Transmission Device Dashboard</h2>
+  <div id="status" class="status-box">Connecting...</div>
+  <div id="streamingStatus" class="status-box">🔴 Standby</div>
+
+  <div class="section">
+    <h3>🔊 Live Audio Waveform</h3>
+    <button onclick="toggleLiveAudio()">▶️ Start Audio</button>
+    <button onclick="pauseAudio()">⏸ Pause</button>
+    <button onclick="resumeAudio()">▶️ Resume</button>
+
+    <canvas id="waveformCanvas"></canvas>
+  </div>
+
+  <div class="section">
+    <h3>🧠 Live Speech Transcript</h3>
+    <div id="alertBanner">🚨 EMERGENCY KEYWORD DETECTED!</div>
+    <div id="liveTranscript">Waiting for transcription...</div>
+  </div>
+
+  <div class="section">
+    <h3>📈 Live Sensor Chart</h3>
+    <canvas id="sensorChart"></canvas>
+  </div>
+
+  <div class="section">
+    <h3>📋 Live Sensor Data Table</h3>
+    <table id="sensorTable" border="1" >
+      <thead>
+        <tr>
+          <th>Time</th>
+          <th>Temperature (°C)</th>
+          <th>Humidity (%)</th>
+          <th>Mic Peak</th>
+        </tr>
+      </thead>
+      <tbody id="sensorTableBody"></tbody>
+    </table>
+  </div>
+  
+
+  <div class="section">
+    <h3>📁 Audio Recordings</h3>
+    <div id="recordings"></div>
+  </div>
+
+  <div class="section">
+    <h3>📄 Sensor Logs</h3>
+    <div id="csvDownloads"></div>
+  </div>
+
+  <div class="section">
+    <h3>📊 Historical Sensor Viewer</h3>
+    <select id="csvSelector"><option>Loading...</option></select>
+    <canvas id="historicalChart" height="200"></canvas>
+  </div>
+
+  
+  
+
+  
+  <script>
+    
+    const ws = new WebSocket(`ws://${location.host}`);
+    const statusElem = document.getElementById("status");
+    const streamingElem = document.getElementById("streamingStatus");
+    const sensorCtx = document.getElementById("sensorChart").getContext("2d");
+    const waveformCtx = document.getElementById("waveformCanvas").getContext("2d");
+    const transcriptBox = document.getElementById("liveTranscript");
+    const alertBanner = document.getElementById("alertBanner");
+
+
+    const sensorChart = new Chart(sensorCtx, {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [
+          { label: "Temp (°C)", borderColor: "red", data: [] },
+          { label: "Humidity (%)", borderColor: "blue", data: [] },
+          { label: "Mic Peak", borderColor: "green", data: [] }
+        ]
+      },
+      options: {
+        animation: false,
+        responsive: true,
+        scales: { x: { display: false }, y: { beginAtZero: true } }
+      }
+    });
+
+    let streamBuffer = [];
+    let audioCtx, workletNode;
+
+    ws.onopen = () => statusElem.innerText = "🟢 Connected";
+    ws.onmessage = (msg) => {
+      if (msg.data instanceof Blob) {
+        msg.data.arrayBuffer().then(decodePCM);
+        return;
+      }
+
+      try {
+        const data = JSON.parse(msg.data);
+
+        if (data.type === "sensor") {
+          const now = new Date().toLocaleTimeString();
+          sensorChart.data.labels.push(now);
+          const table = document.getElementById("sensorTableBody");
+          const row = document.createElement("tr");
+          row.innerHTML = `
+            <td>${now}</td>
+            <td>${data.temp}</td>
+            <td>${data.hum}</td>
+            <td>${data.mic_peak}</td>
+          `;
+          table.appendChild(row);
+
+          //  Limit table to last 10 entries
+          if (table.rows.length > 10) {
+            table.deleteRow(0);
+          }
+
+          sensorChart.data.datasets[0].data.push(data.temp);
+          sensorChart.data.datasets[1].data.push(data.hum);
+          sensorChart.data.datasets[2].data.push(data.mic_peak);
+
+          if (sensorChart.data.labels.length > 30) {
+            sensorChart.data.labels.shift();
+            sensorChart.data.datasets.forEach(ds => ds.data.shift());
+          }
+          sensorChart.update();
+        }
+
+        if (data.type === "status") {
+            const s = document.getElementById("streamingStatus");
+            if (data.value === "streaming") {
+                s.innerText = "🟢 Streaming";
+                s.style.background = "green";
+
+                // ✅ Automatically start live audio once
+                if (!audioCtx) toggleLiveAudio();
+
+            } else {
+                s.innerText = "🔴 Standby";
+                s.style.background = "red";
+                loadAudioAndCSVs(); // refresh audio/CSV list
+            }
+        }
+        if (data.type === "transcript") {
+          transcriptBox.textContent += "\n" + data.text;
+          transcriptBox.scrollTop = transcriptBox.scrollHeight;
+        }
+
+        if (data.type === "alert") {
+          alertBanner.style.display = "block";
+          setTimeout(() => alertBanner.style.display = "none", 4000);
+        }
+
+
+      } catch (e) {
+        console.warn("Non-JSON or invalid data:", e);
+      }
+    };
+
+    let gainNode, bandpass, compressor;
+
+
+    function toggleLiveAudio() {
+      if (!audioCtx) {
+        audioCtx = new AudioContext();
+        audioCtx.audioWorklet.addModule("/processor.js").then(() => {
+          workletNode = new AudioWorkletNode(audioCtx, "pcm-player");
+           //  Bandpass filter for human voice
+          bandpass = audioCtx.createBiquadFilter();
+          bandpass.type = "bandpass";
+          bandpass.frequency.value = 1000; // center at 1kHz
+          bandpass.Q = 1.5; // bandwidth
+
+          // 🎛 Dynamic compressor
+          compressor = audioCtx.createDynamicsCompressor();
+          compressor.threshold.setValueAtTime(-50, audioCtx.currentTime);
+          compressor.knee.setValueAtTime(20, audioCtx.currentTime);
+          compressor.ratio.setValueAtTime(4, audioCtx.currentTime);
+          compressor.attack.setValueAtTime(0.003, audioCtx.currentTime);
+          compressor.release.setValueAtTime(0.25, audioCtx.currentTime);
+
+          //  Gain booster 
+          gainNode = audioCtx.createGain();
+          gainNode.gain.value = 1.2;
+
+          //Connect chain: Worklet → Bandpass → Compressor → Gain → Output
+          workletNode.connect(bandpass);
+          bandpass.connect(compressor);
+          compressor.connect(gainNode);
+          gainNode.connect(audioCtx.destination);
+
+          setInterval(() => {
+            if (streamBuffer.length > 0) {
+              const chunk = streamBuffer.splice(0, 512);
+              workletNode.port.postMessage({ type: "push", samples: chunk });
+              drawWaveform(chunk);
+            }
+          }, 30);
+        });
+      }
+    }
+
+    let isPaused = false;
+
+    function pauseAudio() {
+      if (audioCtx && !isPaused) {
+        audioCtx.suspend().then(() => {
+          console.log("🔇 Audio playback paused");
+          isPaused = true;
+        });
+      }
+    }
+
+    function resumeAudio() {
+      if (audioCtx && isPaused) {
+        audioCtx.resume().then(() => {
+          console.log("🔊 Audio playback resumed");
+          isPaused = false;
+        });
+      }
+    }
+
+
+    function decodePCM(buffer) {
+      const int16 = new Int16Array(buffer);
+      const float32 = new Float32Array(int16.length);
+      for (let i = 0; i < int16.length; i++) {
+        float32[i] = int16[i] / 32768;
+      }
+      streamBuffer.push(...float32);
+    }
+
+    function drawWaveform(samples) {
+        const canvas = waveformCtx.canvas;
+        const width = canvas.width;
+        const height = canvas.height;
+        const centerY = height / 2;
+
+        waveformCtx.clearRect(0, 0, width, height);
+
+        // Create gradient stroke
+        const gradient = waveformCtx.createLinearGradient(0, 0, width, 0);
+        gradient.addColorStop(0, "#00f2fe");
+        gradient.addColorStop(1, "#4facfe");
+
+        waveformCtx.beginPath();
+        waveformCtx.lineWidth = 2;
+        waveformCtx.strokeStyle = gradient;
+        waveformCtx.lineJoin = "round";
+        waveformCtx.lineCap = "round";
+        waveformCtx.shadowColor = "#00d4ff88";
+        waveformCtx.shadowBlur = 8;
+
+        const stepX = width / samples.length;
+        waveformCtx.moveTo(0, centerY - samples[0] * centerY);
+
+        for (let i = 1; i < samples.length; i++) {
+            const x = i * stepX;
+            const y = centerY - samples[i] * centerY;
+            waveformCtx.lineTo(x, y);
+        }
+
+        waveformCtx.stroke();
+    }
+
+
+    function loadAudioAndCSVs() {
+      fetch('/api/audio-files')
+        .then(res => res.json())
+        .then(files => {
+          const container = document.getElementById("recordings");
+          container.innerHTML = "";
+          files.reverse().forEach(file => {
+            const block = document.createElement("div");
+            block.className = "recording-block";
+            const label = document.createElement("p");
+            label.innerText = "🎧 " + file.replace("panic_", "").replace(".wav", "");
+            const audio = document.createElement("audio");
+            audio.controls = true;
+            audio.src = "/audio/" + file;
+            block.appendChild(label);
+            block.appendChild(audio);
+            container.appendChild(block);
+          });
+        });
+
+      fetch('/api/csv-files')
+        .then(res => res.json())
+        .then(files => {
+          const downloadBox = document.getElementById("csvDownloads");
+          const selector = document.getElementById("csvSelector");
+          downloadBox.innerHTML = "";
+          selector.innerHTML = "";
+
+          files.reverse().forEach(file => {
+            const link = document.createElement("a");
+            link.href = "/data/" + file;
+            link.innerText = "⬇️ " + file;
+            link.style.display = "block";
+            downloadBox.appendChild(link);
+
+            const option = document.createElement("option");
+            option.value = file;
+            option.innerText = file;
+            selector.appendChild(option);
+          });
+
+          selector.dispatchEvent(new Event("change"));
+        });
+    }
+
+    document.getElementById("csvSelector").addEventListener("change", e => {
+      const file = e.target.value;
+      fetch("/data/" + file)
+        .then(res => res.text())
+        .then(csv => {
+          const rows = csv.trim().split("\n").slice(1);
+          const labels = [], temp = [], hum = [], peak = [];
+
+          rows.forEach(line => {
+            const [ts, t, h, m] = line.split(",");
+            labels.push(new Date(parseInt(ts)).toLocaleTimeString());
+            temp.push(+t); hum.push(+h); peak.push(+m);
+          });
+
+          historicalChart.data.labels = labels;
+          historicalChart.data.datasets[0].data = temp;
+          historicalChart.data.datasets[1].data = hum;
+          historicalChart.data.datasets[2].data = peak;
+          historicalChart.update();
+        });
+    });
+
+    const historicalChart = new Chart(document.getElementById("historicalChart").getContext("2d"), {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [
+          { label: "Temp (°C)", borderColor: "red", data: [] },
+          { label: "Humidity (%)", borderColor: "blue", data: [] },
+          { label: "Mic Peak", borderColor: "green", data: [] }
+        ]
+      },
+      options: {
+        responsive: true,
+        animation: false,
+        scales: { y: { beginAtZero: true } }
+      }
+    });
+
+    window.onload = loadAudioAndCSVs;
+  </script>
+</body>
+</html>
