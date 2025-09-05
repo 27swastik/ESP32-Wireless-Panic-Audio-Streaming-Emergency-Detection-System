@@ -94,15 +94,15 @@ Key features:
 ---
 
 ## 📂 Project Structure  
-├── project_streaming_02.ino # ESP32 firmware
-├── server.js # Node.js server (WebSocket + Express)
-├── realtime_stt.py # Vosk STT engine
-├── index.html # Web dashboard
-├── processor.js # AudioWorklet for PCM playback
-├── package.json # Node dependencies
-├── audio/ # Saved audio recordings
-├── data/ # Saved sensor logs
-└── vosk-model-small-en-us/ # Vosk model files
+├── project_streaming_02.ino # ESP32 firmware\
+├── server.js # Node.js server (WebSocket + Express)\
+├── realtime_stt.py # Vosk STT engine\
+├── index.html # Web dashboard\
+├── processor.js # AudioWorklet for PCM playback\
+├── package.json # Node dependencies\
+├── audio/ # Saved audio recordings\
+├── data/ # Saved sensor logs\
+└── vosk-model-small-en-us/ # Vosk model files\
 
 **🔮 Future Improvements**
 
